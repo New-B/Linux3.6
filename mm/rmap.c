@@ -61,6 +61,8 @@
 
 #include "internal.h"
 
+#include <linux/replicate.h>
+
 static struct kmem_cache *anon_vma_cachep;
 static struct kmem_cache *anon_vma_chain_cachep;
 
@@ -928,6 +930,12 @@ static int page_mkclean_one(struct page *page, struct vm_area_struct *vma,
 	if (pte_dirty(*pte) || pte_write(*pte)) {
 		pte_t entry;
 
+      /** FG: We need to clear the "slave" entry as well **/
+      if(PageReplication(page)) {
+         DEBUG_PANIC("TODO!\n"); // We cannot use clear_flush_all_node_copies because we don't want to remove the page
+      }
+      clear_flush_all_node_copies(mm, vma, address);
+
 		flush_cache_page(vma, address, pte_pfn(*pte));
 		entry = ptep_clear_flush_notify(vma, address, pte);
 		entry = pte_wrprotect(entry);
@@ -1177,7 +1185,10 @@ void page_remove_rmap(struct page *page)
 	if (!atomic_add_negative(-1, &page->_mapcount))
 		goto out;
 
-	/*
+   // Reset the stats
+   memset(&page->stats, 0, sizeof(perpage_stats_t));
+
+   /*
 	 * Now that the last pte has gone, s390 must transfer dirty
 	 * flag from storage key to struct page.  We can usually skip
 	 * this if the page is anon, so about to be freed; but perhaps
@@ -1213,6 +1224,12 @@ void page_remove_rmap(struct page *page)
 	 * Leaving it set also helps swapoff to reinstate ptes
 	 * faster for those pages still in swapcache.
 	 */
+
+   /** If the page is not mapped anymore, no need to keep these flags **/
+   ClearPageReplication(page);
+   ClearPageCollapsed(page);
+   ClearPagePingPong(page);
+
 out:
 	if (!anon)
 		mem_cgroup_end_update_page_stat(page, &locked, &flags);
@@ -1254,9 +1271,17 @@ int try_to_unmap_one(struct page *page, struct vm_area_struct *vma,
 		}
   	}
 
+   if(PageReplication(page) && (flags & TTU_MIGRATION)) {
+      // Even though the code below works, we don't want to migrate a replicated page
+      goto out_unmap;
+   }
+
 	/* Nuke the page table entry. */
 	flush_cache_page(vma, address, page_to_pfn(page));
 	pteval = ptep_clear_flush_notify(vma, address, pte);
+
+   /** FG: We need to clear the "slave" entry as well **/
+   clear_flush_all_node_copies(mm, vma, address);
 
 	/* Move the dirty bit to the physical page now the pte is gone. */
 	if (pte_dirty(pteval))
@@ -1439,6 +1464,9 @@ static int try_to_unmap_cluster(unsigned long cursor, unsigned int *mapcount,
 		/* Nuke the page table entry. */
 		flush_cache_page(vma, address, pte_pfn(*pte));
 		pteval = ptep_clear_flush_notify(vma, address, pte);
+
+      /** FG: We need to clear the "slave" entry as well **/
+      clear_flush_all_node_copies(mm, vma, address);
 
 		/* If nonlinear, store the file page offset in the pte. */
 		if (page->index != linear_page_index(vma, address))

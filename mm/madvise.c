@@ -16,6 +16,8 @@
 #include <linux/ksm.h>
 #include <linux/fs.h>
 #include <linux/file.h>
+/* JRF */
+#include <linux/replicate.h>
 
 /*
  * Any behaviour which results in changes to the vma->vm_flags needs to
@@ -86,6 +88,11 @@ static long madvise_behavior(struct vm_area_struct * vma,
 		if (error)
 			goto out;
 		break;
+   /* JRF */
+	case MADV_REPLICATE:
+	case MADV_DONTREPLICATE:
+		break;
+
 	}
 
 	if (new_flags == vma->vm_flags) {
@@ -310,6 +317,9 @@ madvise_behavior_valid(int behavior)
 #endif
 	case MADV_DONTDUMP:
 	case MADV_DODUMP:
+	/*JRF*/
+	case MADV_REPLICATE:
+	case MADV_DONTREPLICATE:
 		return 1;
 
 	default:
@@ -367,6 +377,11 @@ SYSCALL_DEFINE3(madvise, unsigned long, start, size_t, len_in, int, behavior)
 	int error = -EINVAL;
 	int write;
 	size_t len;
+
+   if(behavior == MADV_REPLICATE || behavior == MADV_DONTREPLICATE) {
+      replicate_madvise(current->tgid, start, len_in, behavior);
+      return 0;
+   }
 
 #ifdef CONFIG_MEMORY_FAILURE
 	if (behavior == MADV_HWPOISON || behavior == MADV_SOFT_OFFLINE)
@@ -441,6 +456,9 @@ SYSCALL_DEFINE3(madvise, unsigned long, start, size_t, len_in, int, behavior)
 			vma = find_vma(current->mm, start);
 	}
 out:
+	/*JRF*/
+	if(!error && behavior == MADV_REPLICATE)
+		return error;
 	if (write)
 		up_write(&current->mm->mmap_sem);
 	else

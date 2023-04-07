@@ -38,6 +38,10 @@
 
 #include <asm/tlbflush.h>
 
+#include <linux/replicate.h>
+#include <linux/mmu_notifier.h>
+
+
 #include "internal.h"
 
 /*
@@ -667,10 +671,22 @@ static int move_to_new_page(struct page *newpage, struct page *page,
 
 	if (rc) {
 		newpage->mapping = NULL;
+      memset(&newpage->stats, 0, sizeof(perpage_stats_t));
 	} else {
+
 		if (remap_swapcache)
 			remove_migration_ptes(page, newpage);
 		page->mapping = NULL;
+
+
+      /** The migration was successful **/
+#if ENABLE_MIGRATION_STATS
+      newpage->stats.nr_migrations++;
+
+      /*if(newpage->stats.nr_migrations > 1) {
+         printk("Page %p has been migrated %lu times\n", page_address(newpage), (unsigned long) newpage->stats.nr_migrations);
+      }*/
+#endif
 	}
 
 	unlock_page(newpage);
@@ -798,6 +814,9 @@ static int __unmap_and_move(struct page *page, struct page *newpage,
 		}
 		goto skip_unmap;
 	}
+
+   /** Makes sure that stats will be synchronized **/
+   newpage->stats = page->stats;
 
 	/* Establish migration ptes or remove ptes */
 	try_to_unmap(page, TTU_MIGRATION|TTU_IGNORE_MLOCK|TTU_IGNORE_ACCESS);
@@ -988,6 +1007,7 @@ int migrate_pages(struct list_head *from,
 				retry++;
 				break;
 			case 0:
+            INCR_REP_STAT_VALUE(nr_migrations, 1);
 				break;
 			default:
 				/* Permanent failure */
@@ -1078,7 +1098,6 @@ static int do_move_page_to_node_array(struct mm_struct *mm,
 	LIST_HEAD(pagelist);
 
 	down_read(&mm->mmap_sem);
-
 	/*
 	 * Build a list of pages to migrate
 	 */
@@ -1105,6 +1124,11 @@ static int do_move_page_to_node_array(struct mm_struct *mm,
 		if (PageReserved(page) || PageKsm(page))
 			goto put_and_set;
 
+      /* Don't want to migrate a replicated page */
+      if (PageReplication(page)) {
+         goto put_and_set;
+      }
+
 		pp->page = page;
 		err = page_to_nid(page);
 
@@ -1122,9 +1146,9 @@ static int do_move_page_to_node_array(struct mm_struct *mm,
 		err = isolate_lru_page(page);
 		if (!err) {
 			list_add_tail(&page->lru, &pagelist);
-			inc_zone_page_state(page, NR_ISOLATED_ANON +
-					    page_is_file_cache(page));
+			inc_zone_page_state(page, NR_ISOLATED_ANON +  page_is_file_cache(page));
 		}
+
 put_and_set:
 		/*
 		 * Either remove the duplicate refcount from
@@ -1144,7 +1168,7 @@ set_status:
 			putback_lru_pages(&pagelist);
 	}
 
-	up_read(&mm->mmap_sem);
+   up_read(&mm->mmap_sem);
 	return err;
 }
 
