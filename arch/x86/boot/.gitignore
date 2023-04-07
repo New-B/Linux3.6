@@ -7,5 +7,4 @@ voffset.h
 zoffset.h
 setup
 setup.bin
-vmlinux.bin
 setup.elf
