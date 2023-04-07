@@ -3437,14 +3437,8 @@ need_resched:
 		 */
 		cpu = smp_processor_id();
 		rq = cpu_rq(cpu);
-	}
-   else {
-      if (is_replicated(next->mm)) {
-         // Check if an mm switch is needed
-         switch_mm(prev->mm, next->mm, next);
-      }
+	} else
 		raw_spin_unlock_irq(&rq->lock);
-   }
 
 	post_schedule(rq);
 
@@ -7364,7 +7358,6 @@ void __init sched_init(void)
 	 * The boot idle thread does lazy MMU switching as well:
 	 */
 	atomic_inc(&init_mm.mm_count);
-
 	enter_lazy_tlb(&init_mm, current);
 
 	/*

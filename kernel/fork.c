@@ -478,24 +478,15 @@ fail_nomem:
 
 static inline int mm_alloc_pgd(struct mm_struct *mm)
 {
-	mm->pgd_master = pgd_alloc(mm);
-	if (unlikely(!mm->pgd_master))
+	mm->pgd = pgd_alloc(mm);
+	if (unlikely(!mm->pgd))
 		return -ENOMEM;
-
 	return 0;
 }
 
 static inline void mm_free_pgd(struct mm_struct *mm)
 {
-   int node;
-
-	pgd_free(mm, mm->pgd_master);
-
-   for_each_online_node(node) {
-      if(mm->pgd_node[node]) {
-         pgd_free(mm, mm->pgd_node[node]);
-      }
-   }
+	pgd_free(mm, mm->pgd);
 }
 #else
 #define dup_mmap(mm, oldmm)	(0)
@@ -546,11 +537,6 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p)
 	mm->cached_hole_size = ~0UL;
 	mm_init_aio(mm);
 	mm_init_owner(mm, p);
-
-   /** Fabien: Make sure that everything is initialized properly **/
-   memset(mm->pgd_node, 0, MAX_NUMNODES * sizeof(pgd_t*));
-   mm->replicated_mm = 0;
-   /***/
 
 	if (likely(!mm_alloc_pgd(mm))) {
 		mm->def_flags = 0;
